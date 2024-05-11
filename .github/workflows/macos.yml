@@ -19,7 +19,7 @@ jobs:
         brew install boost
         set -e
 
-        export CXX=`brew list llvm | grep clang++`
+        export CXX=`brew list llvm@17 | grep clang++`
         echo "CXX=${CXX}" >> $GITHUB_ENV
         export LLVM_ROOT=`echo $CXX | sed -E "s/bin\/.*//"`
         echo "LLVM_DIR=${LLVM_ROOT}/lib/cmake/llvm" >> $GITHUB_ENV
