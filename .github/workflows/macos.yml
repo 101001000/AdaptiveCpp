@@ -32,7 +32,7 @@ jobs:
         -DWITH_OPENCL_BACKEND=OFF \
         -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/build/install \
         -DLLVM_DIR=$LLVM_DIR \
-        -DOpenMP_DIR=$LLVM_DIR
+        -DOpenMP_ROOT=$LLVM_DIR
         make -j 2 install VERBOSE=ON
     - name: build library only CPU tests
       run: |
@@ -40,7 +40,7 @@ jobs:
         cmake \
         -DACPP_TARGETS=omp.library-only \
         -DAdaptiveCpp_DIR=${GITHUB_WORKSPACE}/build/install/lib/cmake/AdaptiveCpp \
-        -DOpenMP_DIR=$LLVM_DIR \
+        -DOpenMP_ROOT=$LLVM_DIR \
         ${GITHUB_WORKSPACE}/tests
         make -j 2 VERBOSE=ON
     - name: build accelerated CPU tests
@@ -49,7 +49,7 @@ jobs:
         cmake \
         -DACPP_TARGETS=omp.accelerated \
         -DAdaptiveCpp_DIR=${GITHUB_WORKSPACE}/build/install/lib/cmake/AdaptiveCpp \
-        -DOpenMP_DIR=$LLVM_DIR \
+        -DOpenMP_ROOT=$LLVM_DIR \
         ${GITHUB_WORKSPACE}/tests
         make -j 2 VERBOSE=ON
     - name: build SSCP (CPU) tests
@@ -58,7 +58,7 @@ jobs:
         cmake \
         -DACPP_TARGETS=generic \
         -DAdaptiveCpp_DIR=${GITHUB_WORKSPACE}/build/install/lib/cmake/AdaptiveCpp \
-        -DOpenMP_DIR=$LLVM_DIR \
+        -DOpenMP_ROOT=$LLVM_DIR \
         ${GITHUB_WORKSPACE}/tests
         make -j 2 VERBOSE=ON
     - name: run CPU tests
