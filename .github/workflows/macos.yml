@@ -15,11 +15,10 @@ jobs:
         set +e
         brew update
         brew install cmake
-        brew install libomp
-        brew install llvm
+        brew install llvm@17
         brew install boost
         set -e
-        
+
         export CXX=`brew list llvm | grep clang++`
         echo "CXX=${CXX}" >> $GITHUB_ENV
         export LLVM_ROOT=`echo $CXX | sed -E "s/bin\/.*//"`
@@ -32,7 +31,8 @@ jobs:
         cmake .. \
         -DWITH_OPENCL_BACKEND=OFF \
         -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/build/install \
-        -DLLVM_DIR=$LLVM_DIR
+        -DLLVM_DIR=$LLVM_DIR \
+        -DOpenMP_DIR=$LLVM_DIR
         make -j 2 install VERBOSE=ON
     - name: build library only CPU tests
       run: |
@@ -40,6 +40,7 @@ jobs:
         cmake \
         -DACPP_TARGETS=omp.library-only \
         -DAdaptiveCpp_DIR=${GITHUB_WORKSPACE}/build/install/lib/cmake/AdaptiveCpp \
+        -DOpenMP_DIR=$LLVM_DIR \
         ${GITHUB_WORKSPACE}/tests
         make -j 2 VERBOSE=ON
     - name: build accelerated CPU tests
@@ -48,6 +49,7 @@ jobs:
         cmake \
         -DACPP_TARGETS=omp.accelerated \
         -DAdaptiveCpp_DIR=${GITHUB_WORKSPACE}/build/install/lib/cmake/AdaptiveCpp \
+        -DOpenMP_DIR=$LLVM_DIR \
         ${GITHUB_WORKSPACE}/tests
         make -j 2 VERBOSE=ON
     - name: build SSCP (CPU) tests
@@ -56,6 +58,7 @@ jobs:
         cmake \
         -DACPP_TARGETS=generic \
         -DAdaptiveCpp_DIR=${GITHUB_WORKSPACE}/build/install/lib/cmake/AdaptiveCpp \
+        -DOpenMP_DIR=$LLVM_DIR \
         ${GITHUB_WORKSPACE}/tests
         make -j 2 VERBOSE=ON
     - name: run CPU tests
