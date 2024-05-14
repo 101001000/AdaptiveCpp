@@ -25,6 +25,7 @@ jobs:
         export LLVM_ROOT=`echo $CXX | sed -E "s/bin\/.*//"`
         echo "LLVM_DIR=${LLVM_ROOT}/lib/cmake/llvm" >> $GITHUB_ENV
         echo "LDFLAGS=-L${LLVM_ROOT}/lib/c++ -Wl,-rpath,${LLVM_ROOT}/lib/c++" >> $GITHUB_ENV
+        echo "LD_LIBRARY_PATH=${LLVM_ROOT}/lib/c++:${LLVM_ROOT}/lib:${GITHUB_WORKSPACE}/build/install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
         
     - name: build
       run: |
@@ -45,7 +46,7 @@ jobs:
     - name: run CPU tests
       run: |
         cd ${GITHUB_WORKSPACE}/build/tests-cpu
-        dapptrace -U ./sycl_tests
+        ./sycl_tests
     - name: build accelerated CPU tests
       run: |
         mkdir build/tests-acc-cpu && cd build/tests-acc-cpu
