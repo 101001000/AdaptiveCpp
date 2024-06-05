@@ -33,6 +33,7 @@
 #include "hipSYCL/compiler/llvm-to-backend/Utils.hpp"
 #include "hipSYCL/compiler/sscp/IRConstantReplacer.hpp"
 #include "hipSYCL/compiler/sscp/KernelOutliningPass.hpp"
+#include "hipSYCL/compiler/utils/ExternalModulePass.hpp"
 #include "hipSYCL/compiler/utils/ProcessFunctionAnnotationsPass.hpp"
 #include "hipSYCL/glue/llvm-sscp/s2_ir_constants.hpp"
 
@@ -271,6 +272,9 @@ bool LLVMToBackendTranslator::prepareIR(llvm::Module &M) {
 
       if(IsFastMath)
         setFastMathFunctionAttribs(M);
+
+      utils::ExternalModulePass EMP{};
+      EMP.run(M, MAM);
 
       // Remove argument_used hints, which are no longer needed once we enter optimization stage.
       // This is primarily needed for dynamic functions.

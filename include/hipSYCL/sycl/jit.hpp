@@ -49,6 +49,9 @@ extern "C" void __acpp_function_annotation_dynamic_function_def_arg1();
 template<class T>
 void __acpp_function_annotation_argument_used(T&& x);
 
+extern "C" void __acpp_function_annotation_external_module(const char* path, const char* fname);
+// Meaning: The calling function will have it's definition replaced with the function named "fname" in the .ll file in "path"
+
 namespace hipsycl::sycl::jit {
 
 template<class T>

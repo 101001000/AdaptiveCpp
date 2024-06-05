@@ -35,6 +35,7 @@
 #include "hipSYCL/compiler/sscp/DynamicFunctionSupport.hpp"
 #include "hipSYCL/compiler/cbs/IRUtils.hpp"
 #include "hipSYCL/compiler/CompilationState.hpp"
+#include "hipSYCL/compiler/utils/ExternalModulePass.hpp"
 #include "hipSYCL/compiler/utils/ProcessFunctionAnnotationsPass.hpp"
 #include "hipSYCL/common/hcf_container.hpp"
 
@@ -497,7 +498,7 @@ llvm::PreservedAnalyses TargetSeparationPass::run(llvm::Module &M,
       // has been generated. This is primarily needed for dynamic functions.
       // TODO: We should consider whether it might make more sense to move this to late-stage
       // JIT, at least for the device part.
-      utils::ProcessFunctionAnnotationPass PFA({"argument_used"});
+      utils::ProcessFunctionAnnotationPass PFA({"argument_used", "external_module"});
       PFA.run(M, MAM);
     }
 
