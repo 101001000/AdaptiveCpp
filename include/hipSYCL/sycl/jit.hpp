@@ -49,8 +49,8 @@ extern "C" void __acpp_function_annotation_dynamic_function_def_arg1();
 template<class T>
 void __acpp_function_annotation_argument_used(T&& x);
 
-extern "C" void __acpp_function_annotation_external_module(const char* path, const char* fname);
 // Meaning: The calling function will have it's definition replaced with the function named "fname" in the .ll file in "path"
+extern "C" void __acpp_function_annotation_external_module(const char* path, const char* fname);
 
 namespace hipsycl::sycl::jit {
 
@@ -63,6 +63,14 @@ template<class T, typename... Args>
 void arguments_are_used(T&& x, Args&&... other_args) {
   __acpp_function_annotation_argument_used(std::forward<T>(x));
   arguments_are_used(std::forward<Args>(other_args)...);
+}
+
+template<typename T, typename... Args>
+[[clang::annotate("acpp_no_s1_device_inline")]]
+__attribute__((noinline, optnone, used)) T external_function(const char* path, const char* fname, Args...){
+    __acpp_function_annotation_external_module(path, fname);
+    T t;
+    return t; // Avoid constant propagation
 }
 
 class dynamic_function_id {

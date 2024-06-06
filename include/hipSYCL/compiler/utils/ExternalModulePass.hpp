@@ -40,6 +40,7 @@
 #include <llvm/Linker/Linker.h>
 #include <llvm/IR/IRBuilder.h>
 
+
 #include <vector>
 
 namespace hipsycl {
@@ -54,51 +55,74 @@ public:
     std::string BuiltinName = "__acpp_function_annotation_external_module";
 
     for (auto &F : M) {
-      if (F.getName().contains(BuiltinName)) {
-        for (auto *U : F.users()) {
-          if (auto *CB = llvm::dyn_cast<llvm::CallBase>(U)) {
+      if (F.getName().contains(BuiltinName)) { //Find __acpp_function_annotation_external_module
+        for (auto *U : F.users()) { // Get who's calling it (external_function)
+          if (auto *CBB = llvm::dyn_cast<llvm::CallBase>(U)) { // Get calling instruction (call __acpp_function_annotation_external_module(%0,%1))
+            llvm::Function* callerF = CBB->getParent()->getParent(); // Get external_function
+            for (auto *UU : callerF->users()) {  // Get who is calling external_function (kernel or nd_range)
+              if (auto *CB = llvm::dyn_cast<llvm::CallBase>(UU)) {  // Get calling instruction (call external_function)
 
-            llvm::Value *ArgPath  = CB->getArgOperand(0);
-            llvm::Value *ArgFName = CB->getArgOperand(1);
-            llvm::GlobalVariable *GPath  = parse_global_from_arg(ArgPath);
-            llvm::GlobalVariable *GFName = parse_global_from_arg(ArgFName);
-            std::string path  = extract_string_from_global(M, std::string(GPath->getName()));
-            std::string fname = extract_string_from_global(M, std::string(GFName->getName()));
+                if(!callerF){
+                  HIPSYCL_DEBUG_ERROR << "Caller function couldn't be retrieved \n";
+                }
+                llvm::Value *ArgPath  = CB->getArgOperand(0);
+                llvm::Value *ArgFName = CB->getArgOperand(1);
 
-            llvm::SMDiagnostic Err;
+                if(!ArgPath || !ArgFName){
+                  HIPSYCL_DEBUG_ERROR << "Error retrieving operands \n";
+                }
 
-            std::unique_ptr<llvm::Module> MPayload = llvm::parseIRFile(path, Err, M.getContext());
+                CB->print(llvm::errs());
 
-            if(!MPayload){
-              std::cout << "ERROR LOADING";
-            }
-            if(llvm::Linker::linkModules(M, std::move(MPayload))){
-              std::cout << "ERROR ON LINKING" << std::endl;
-            }
-            llvm::Function* callerF = CB->getParent()->getParent();
-            llvm::Function* calleeF = find_function(M, fname);
-            if(!calleeF){
-              std::cout << "function not found in module" << std::endl;
-            }
-            std::vector<llvm::Instruction*> Is{};
-            for(auto& BB : *callerF){
-              for(auto& I : BB){
-                Is.push_back(&I);
+                llvm::GlobalVariable *GPath  = parse_global_from_arg(ArgPath);
+                llvm::GlobalVariable *GFName = parse_global_from_arg(ArgFName);
+
+                std::string path  = extract_string_from_global(M, std::string(GPath->getName()));
+                std::string fname = extract_string_from_global(M, std::string(GFName->getName()));
+
+                llvm::SMDiagnostic Err;
+
+                std::unique_ptr<llvm::Module> MPayload = llvm::parseIRFile(path, Err, M.getContext());
+
+                HIPSYCL_DEBUG_INFO << "Loading LLVM module in " << path << "\n";
+
+                if(!MPayload){
+                  HIPSYCL_DEBUG_ERROR << "Error loading LLVM Module \n";
+                }
+                if(llvm::Linker::linkModules(M, std::move(MPayload))){
+                  HIPSYCL_DEBUG_ERROR << "Error linking LLVM Module \n";
+                }
+
+                llvm::Function* calleeF = find_function(M, fname);
+
+                if(!calleeF){
+                  HIPSYCL_DEBUG_ERROR << "Function " << fname << " not found in the linked module \n";
+                }
+
+                erase_function_body(callerF);
+                insert_fcall(callerF, calleeF);
               }
             }
-            for(llvm::Instruction* I : Is){
-              I->eraseFromParent();
-            }
-            insert_fcall(callerF, calleeF);
           }
         }
       }
     }
-    
     return llvm::PreservedAnalyses::none();
   }
 
 private:
+
+  void erase_function_body(llvm::Function* F){
+    std::vector<llvm::Instruction*> Is{};
+    for(auto& BB : *F){
+      for(auto& I : BB){
+        Is.push_back(&I);
+      }
+    }
+    for(llvm::Instruction* I : Is){
+      I->eraseFromParent();
+    }
+  }
 
   llvm::Function* find_function(llvm::Module& M, std::string fname){
     for (auto& F : M) {
@@ -116,8 +140,9 @@ private:
     Builder.SetInsertPoint(&BB, BB.getFirstInsertionPt());
 
     std::vector<llvm::Value*> Args;
-    for (auto &Arg : Caller->args()) {
-        Args.push_back(&Arg);
+    auto new_begin = std::next(Caller->arg_begin(), 2); // Skip path and fname arguments.
+    for (auto it = new_begin; it != Caller->arg_end(); ++it) {
+        Args.push_back(&*it);
     }
 
     llvm::CallInst *Call = Builder.CreateCall(Callee, Args);
@@ -131,13 +156,14 @@ private:
   std::string extract_string_from_global(const llvm::Module &M, std::string global_name) {
     for (auto &G : M.globals()) {
       if (std::string(G.getName()) == global_name) {
-        auto a5 = llvm::dyn_cast<llvm::ConstantDataArray>(G.getInitializer());
-        if (a5) {
-          auto a6 = a5->getAsCString();
-          return std::string(a6);
+        auto da = llvm::dyn_cast<llvm::ConstantDataArray>(G.getInitializer());
+        if (da) {
+          auto cs = da->getAsCString();
+          return std::string(cs);
         }
       }
     }
+    HIPSYCL_DEBUG_ERROR << "String could not be retrieved from " << global_name << "\n";
     return "no";
   }
   llvm::GlobalVariable* parse_global_from_arg(llvm::Value* Arg){
@@ -149,6 +175,7 @@ private:
         }
       }
     }
+    HIPSYCL_DEBUG_ERROR << "Global could not be retrieved from arg" << std::string(Arg->getName()) << "\n";
     return nullptr;
   }
 };
