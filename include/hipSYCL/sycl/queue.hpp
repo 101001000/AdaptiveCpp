@@ -30,6 +30,7 @@
 #define HIPSYCL_QUEUE_HPP
 
 #include "hipSYCL/common/debug.hpp"
+#include "hipSYCL/compiler/llvm-to-backend/LLVMToBackend.hpp"
 #include "hipSYCL/glue/error.hpp"
 #include "hipSYCL/runtime/application.hpp"
 #include "hipSYCL/runtime/dag_node.hpp"
@@ -37,6 +38,7 @@
 #include "hipSYCL/runtime/hints.hpp"
 #include "hipSYCL/runtime/inorder_executor.hpp"
 #include "hipSYCL/runtime/inorder_queue.hpp"
+#include "hipSYCL/runtime/operations.hpp"
 #include "hipSYCL/runtime/runtime.hpp"
 #include "hipSYCL/sycl/backend.hpp"
 #include "types.hpp"
@@ -98,9 +100,22 @@ struct hipSYCL_prefer_execution_lane : public detail::cg_property{
 };
 
 struct hipSYCL_coarse_grained_events : public detail::cg_property {};
-
 }
 
+
+namespace property {
+  struct jit_callback : public detail::cg_property{
+  jit_callback(uint64_t id, LLVMPassCallback callback)
+  :  _id{id}, _callback{callback} {}
+
+LLVMPassCallback get_callback() const{ return _callback;}
+uint64_t get_id() const{ return _id;}
+private:
+  LLVMPassCallback _callback;
+  uint64_t _id;
+};
+
+}
 
 namespace property::queue {
 
@@ -396,6 +411,14 @@ public:
 
     rt::dag_node_ptr node = execute_submission(cgf, cgh);
     
+    if(prop_list.has_property<property::jit_callback>()) {
+      auto prop = prop_list.get_property<property::jit_callback>();
+      if(rt::kernel_operation* kernel_op = dynamic_cast<rt::kernel_operation*>(node->get_operation())){
+        kernel_op->set_jit_callback(prop.get_callback(), prop.get_id());
+      } else {
+        HIPSYCL_DEBUG_ERROR << "jit callback assigned to a non kernel operation\n";
+      }      
+    }
     return event{node, _handler};
   }
 

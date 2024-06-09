@@ -46,7 +46,11 @@
 namespace llvm {
 class Module;
 class Function;
+template <typename IRUnitT, typename... ExtraArgTs> class AnalysisManager;
+using ModuleAnalysisManager = AnalysisManager<Module>;
 }
+
+using LLVMPassCallback = std::function<void(llvm::Module&,llvm::ModuleAnalysisManager&)>;
 
 namespace hipsycl {
 namespace compiler {
@@ -83,6 +87,7 @@ public:
     setS2IRConstant(name, static_cast<const void*>(&value));
   }
 
+  void set_jit_callback(LLVMPassCallback jit_callback);
   void setS2IRConstant(const std::string& name, const void* ValueBuffer);
   void specializeKernelArgument(const std::string &KernelName, int ParamIndex,
                                 const void *ValueBuffer);
@@ -237,6 +242,8 @@ private:
   std::unordered_map<std::string, std::function<void(llvm::Module &)>> SpecializationApplicators;
   ExternalSymbolResolver SymbolResolver;
   bool HasExternalSymbolResolver = false;
+
+  LLVMPassCallback jit_callback;
 
   // In case an error occurs, the code will be stored here
   std::string ErroringCode;

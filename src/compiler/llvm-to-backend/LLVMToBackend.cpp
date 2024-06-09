@@ -170,6 +170,10 @@ bool LLVMToBackendTranslator::partialTransformation(const std::string &LLVMIR, s
   return true;
 }
 
+void LLVMToBackendTranslator::set_jit_callback(std::function<void(llvm::Module&,llvm::ModuleAnalysisManager&)> _jit_callback) {
+  jit_callback = _jit_callback;
+}
+
 bool LLVMToBackendTranslator::fullTransformation(const std::string &LLVMIR, std::string &out) {
   llvm::LLVMContext ctx;
   std::unique_ptr<llvm::Module> M;
@@ -220,6 +224,11 @@ bool LLVMToBackendTranslator::prepareIR(llvm::Module &M) {
 
   constructPassBuilderAndMAM([&](llvm::PassBuilder &PB, llvm::ModuleAnalysisManager &MAM) {
     PassHandler PH {&PB, &MAM};
+
+    if(jit_callback){
+      HIPSYCL_DEBUG_INFO << "Running callback pass... \n";
+      jit_callback(M, MAM);
+    }
 
     // Optimize away unnecessary branches due to backend-specific S2IR constants
     // This is what allows us to specialize code for different backends.

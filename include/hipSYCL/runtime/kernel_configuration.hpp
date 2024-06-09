@@ -70,7 +70,9 @@ enum class kernel_build_option : int {
   amdgpu_rocm_device_libs_path,
   amdgpu_rocm_path,
 
-  spirv_dynamic_local_mem_allocation_size
+  spirv_dynamic_local_mem_allocation_size,
+
+  jit_callback_id
 };
 
 enum class kernel_build_flag : int {

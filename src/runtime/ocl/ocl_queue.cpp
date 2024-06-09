@@ -463,6 +463,7 @@ result ocl_queue::submit_sscp_kernel_from_code_object(
   config.set_build_option(
       kernel_build_option::spirv_dynamic_local_mem_allocation_size,
       local_mem_size);
+  config.set_build_option(rt::kernel_build_option::jit_callback_id, op.get_jit_callback_id());
 
   // TODO: Enable this if we are on Intel
   // config.set_build_flag(kernel_build_flag::spirv_enable_intel_llvm_spirv_options);
@@ -476,9 +477,6 @@ result ocl_queue::submit_sscp_kernel_from_code_object(
       code_object_configuration_id,
       kernel_base_config_parameter::runtime_context, ctx.get());
 
- 
-
-  
   auto jit_compiler = [&](std::string& compiled_image) -> bool {
     const common::hcf_container* hcf = rt::hcf_cache::get().get_hcf(hcf_object);
     
@@ -490,6 +488,8 @@ result ocl_queue::submit_sscp_kernel_from_code_object(
     std::unique_ptr<compiler::LLVMToBackendTranslator> translator = 
       std::move(compiler::createLLVMToSpirvTranslator(kernel_names));
     
+    translator->set_jit_callback(op.get_jit_callback());
+
     // Lower kernels to SPIR-V
     auto err = glue::jit::compile(translator.get(),
         hcf, selected_image_name, config, compiled_image);

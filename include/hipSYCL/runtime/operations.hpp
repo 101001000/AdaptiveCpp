@@ -32,6 +32,7 @@
 #include "hipSYCL/sycl/access.hpp"
 #include "hipSYCL/common/debug.hpp"
 #include "hipSYCL/common/small_vector.hpp"
+#include "hipSYCL/compiler/llvm-to-backend/LLVMToBackend.hpp"
 
 #include "hipSYCL/glue/embedded_pointer.hpp"
 
@@ -48,6 +49,9 @@
 #include <functional>
 #include <memory>
 #include <ostream>
+
+
+
 
 namespace hipsycl {
 namespace rt {
@@ -98,7 +102,6 @@ public:
 
   instrumentation_set &get_instrumentations();
   const instrumentation_set &get_instrumentations() const;
-
 private:
   instrumentation_set _instr_set;
 };
@@ -379,6 +382,16 @@ public:
   const std::string& get_global_kernel_name() const {
     return _kernel_name;
   }
+  void set_jit_callback(LLVMPassCallback callback, uint64_t id){
+    _jit_callback = callback;
+    _jit_callback_id = id;
+  }
+  uint64_t get_jit_callback_id() const{
+    return _jit_callback_id;
+  }
+  LLVMPassCallback get_jit_callback() const{
+    return _jit_callback;
+  }
 private:
   std::string _kernel_name;
   kernel_launcher _launcher;
@@ -387,6 +400,8 @@ private:
   // This is required to guarantee the functionality of
   // initialize_embedded_pointers()
   node_list_t _requirements;
+  LLVMPassCallback _jit_callback = nullptr;
+  uint64_t _jit_callback_id {};
 };
 
 // To describe memcpy operations, we need an abstract
@@ -622,7 +637,7 @@ public:
 
 
 template<class T, typename... Args>
-std::unique_ptr<operation> make_operation(Args... args)
+std::unique_ptr<T> make_operation(Args... args)
 {
   return std::make_unique<T>(std::forward<Args>(args)...);
 }
