@@ -56,6 +56,7 @@
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <atomic>
 
 namespace hipsycl {
@@ -122,6 +123,18 @@ struct hipSYCL_priority : public detail::queue_property {
 
 }
 
+namespace property {
+  struct cpu_mask : public detail::cg_property{
+  cpu_mask(std::span<int> mask)
+  :  _mask{mask} {}
+  const std::span<int> get_mask() const{
+    return _mask;
+  }
+private:
+  const std::span<int> _mask;
+};
+
+}
 
 class queue : public detail::property_carrying_object
 {
@@ -345,7 +358,7 @@ public:
     std::lock_guard<std::mutex> lock{*_lock};
 
     rt::execution_hints hints = *_default_hints;
-    
+
     if(prop_list.has_property<property::command_group::hipSYCL_retarget>()) {
 
       rt::device_id dev = detail::extract_rt_device(
@@ -387,6 +400,10 @@ public:
                 _requires_runtime.get(),
                 _allocation_cache.get(),
                 _most_recent_reduction_kernel.get()};
+
+    if(prop_list.has_property<property::cpu_mask>()) {
+      cgh.set_cpu_mask(prop_list.get_property<property::cpu_mask>().get_mask());
+    }
 
     apply_preferred_group_size<1>(prop_list, cgh);
     apply_preferred_group_size<2>(prop_list, cgh);

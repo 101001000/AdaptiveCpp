@@ -32,6 +32,8 @@
 #include <memory>
 #include <type_traits>
 #include <unordered_map>
+#include <span>
+#include <pthread.h>
 
 #include "exception.hpp"
 #include "access.hpp"
@@ -744,7 +746,16 @@ public:
     return _local_mem_allocator;
   }
 
+  void set_cpu_mask(std::span<int> cpu_mask){
+    cpu_mask_ = cpu_mask;
+  }
+  const std::span<int> get_cpu_mask() const{
+    return cpu_mask_;
+  }
 private:
+
+  std::span<int> cpu_mask_;
+
   template <typename T, int dim, access::mode mode, access::target tgt,
             accessor_variant variant>
   rt::device_id get_explicit_accessor_target(
@@ -967,6 +978,20 @@ private:
     }
   }
 
+
+template<typename Lambda>
+auto add_affinity(Lambda f, std::span<int> v){
+  return [=](auto&&... args){
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    for(const int& i : v){
+      CPU_SET(i, &mask);
+    }
+    sched_setaffinity(0, sizeof(cpu_set_t), &mask);
+    return f(std::forward<decltype(args)>(args)...);
+  };
+}
+
   // Plain kernel submission without reductions
   template <class KernelName, rt::kernel_type KernelType, class KernelFuncType,
             int Dim>
@@ -975,7 +1000,7 @@ private:
 
     std::size_t local_mem_size = _local_mem_allocator.get_allocation_size();
     rt::dag_node_ptr node = submit_kernel_impl<KernelName, KernelType>(
-        offset, global_range, local_range, f, local_mem_size, _requirements);
+        offset, global_range, local_range, add_affinity(f, cpu_mask_), local_mem_size, _requirements);
     _command_group_nodes.push_back(node);
   }
 
