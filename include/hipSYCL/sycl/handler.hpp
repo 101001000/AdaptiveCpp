@@ -98,6 +98,132 @@ template <int Dim> struct accessor_data {
 } // namespace detail
 
 class queue;
+class handler;
+
+namespace property {
+
+  struct cpu_sched_policy{
+    cpu_sched_policy(const std::vector<int8_t>& v) : priorities_{v} {}
+    std::vector<int8_t> priorities_{};
+    virtual ~cpu_sched_policy() = default;
+  };
+
+  struct priority_policy : public cpu_sched_policy{
+    priority_policy(const std::vector<int8_t>& v) : cpu_sched_policy{v} {}
+    ~priority_policy() = default;
+
+    template<typename Lambda>
+    auto add_priority(Lambda f){
+      return [=](auto&&... args) {
+        int8_t priority_value {-1};
+        static std::mutex priority_mutex;
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+        decltype(priorities_.begin()) max_it;      
+        {
+          std::lock_guard<std::mutex> lock(priority_mutex);
+          max_it = std::max_element(priorities_.begin(), priorities_.end());
+          CPU_SET(std::distance(priorities_.begin(), max_it), &mask);
+          sched_setaffinity(0, sizeof(cpu_set_t), &mask);
+          priority_value = *max_it;
+          *max_it = -1;
+        }
+        if constexpr (std::is_void<decltype(f(std::forward<decltype(args)>(args)...))>::value) {
+          f(std::forward<decltype(args)>(args)...);
+          {
+            std::lock_guard<std::mutex> lock(priority_mutex);
+            *max_it = priority_value;
+          }
+        } else {
+          auto ret = f(std::forward<decltype(args)>(args)...);
+          {
+            std::lock_guard<std::mutex> lock(priority_mutex);
+            *max_it = priority_value;
+          }
+          return ret;
+        }
+      };
+    }
+  };
+
+  struct masked_policy : public cpu_sched_policy {
+    masked_policy(const std::vector<int8_t>& v) : cpu_sched_policy{v} {}   
+    ~masked_policy() = default;
+    template<typename Lambda>
+    auto add_mask(Lambda f){
+      return [=](auto&&... args) {
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+        for(const auto& v : priorities_){
+          CPU_SET(v, &mask);
+        }
+        sched_setaffinity(0, sizeof(cpu_set_t), &mask);
+        if constexpr (std::is_void<decltype(f(std::forward<decltype(args)>(args)...))>::value) {
+          f(std::forward<decltype(args)>(args)...);
+        } else {
+          auto ret = f(std::forward<decltype(args)>(args)...);
+          return ret;
+        }
+      };
+    }
+  };
+
+  struct policy_factory{
+    policy_factory(int compute_units, int pcores) : compute_units_{compute_units}, pcores_{pcores}, ecores_{compute_units - pcores} {}
+
+    std::unique_ptr<masked_policy> performance_only(){
+      std::vector<int8_t> vec(pcores_, 0);
+      std::iota(vec.begin(), vec.end(), 0);
+      return std::make_unique<masked_policy>(vec);
+    }
+    std::unique_ptr<masked_policy> efficiency_only(){
+      std::vector<int8_t> vec(ecores_, 0);
+      std::iota(vec.begin(), vec.end(), pcores_-1);
+      return std::make_unique<masked_policy>(vec);
+    }
+    std::unique_ptr<masked_policy> all_cores(){
+      std::vector<int8_t> vec(compute_units_, 0);
+      std::iota(vec.begin(), vec.end(), 0);
+      return std::make_unique<masked_policy>(vec);
+    }
+    std::unique_ptr<masked_policy> custom_mask(const std::vector<bool>& mask){
+      assert(mask.size() > 0 && mask.size() < compute_units_);
+      std::vector<int8_t> vec(compute_units_, -1);
+      std::transform(mask.begin(), mask.end(), vec.begin(), [](const bool& b){ return static_cast<int8_t>(b ? 0 : -1);});
+      return std::make_unique<masked_policy>(vec);
+    }
+    std::unique_ptr<priority_policy> performance_first(){
+      std::vector<int8_t> vec(compute_units_, 0);
+      std::fill_n(vec.begin(), pcores_, 1); 
+      return std::make_unique<priority_policy>(vec);
+    }
+    std::unique_ptr<priority_policy> efficiency_first(){
+      std::vector<int8_t> vec(compute_units_, 0);
+      std::fill_n(std::next(vec.begin(), pcores_), ecores_, 1); 
+      return std::make_unique<priority_policy>(vec);
+    }
+    std::unique_ptr<priority_policy> ordered(){
+      std::vector<int8_t> vec(compute_units_, 0);
+      std::iota(vec.begin(), vec.end(), 0);
+      std::reverse(vec.begin(), vec.end());
+      return std::make_unique<priority_policy>(vec);
+    }
+    std::unique_ptr<priority_policy> custom_priority(const std::vector<int8_t>& priorities){
+      assert(priorities.size() < compute_units_ && priorities.size() > 0);
+      std::vector<int8_t> vec(compute_units_, -1);
+      std::copy(priorities.cbegin(), priorities.cend(), vec.begin());
+      return std::make_unique<priority_policy>(vec);
+    }
+    int compute_units_;
+    int pcores_;
+    int ecores_;
+  };
+
+  struct cpu_sched : public detail::cg_property{
+    cpu_sched(cpu_sched_policy* policy) :  policy_{policy} {}
+    cpu_sched_policy* policy_;
+  };
+}
 
 class handler {
   friend class queue;
@@ -746,15 +872,9 @@ public:
     return _local_mem_allocator;
   }
 
-  void set_cpu_mask(std::span<int> cpu_mask){
-    cpu_mask_ = cpu_mask;
-  }
-  const std::span<int> get_cpu_mask() const{
-    return cpu_mask_;
-  }
-private:
+  property::cpu_sched_policy* policy_;
 
-  std::span<int> cpu_mask_;
+private:
 
   template <typename T, int dim, access::mode mode, access::target tgt,
             accessor_variant variant>
@@ -978,30 +1098,91 @@ private:
     }
   }
 
+#include <array>
+#include <mutex>
+#include <sched.h>
+#include <utility>
+#include <algorithm>
 
+/*
 template<typename Lambda>
-auto add_affinity(Lambda f, std::span<int> v){
-  return [=](auto&&... args){
+auto add_priority(Lambda f, const std::vector<int8_t>& priority){
+
+  for(auto p : priority){
+    std::cout << ((int)p) << ",";
+  }
+
+  //std::array<int8_t, 24> priority_ext;
+
+  return [=](auto&&... args) {
+
+    int8_t priority_value {-1};
+    static std::mutex priority_mutex;
+
     cpu_set_t mask;
     CPU_ZERO(&mask);
-    for(const int& i : v){
-      CPU_SET(i, &mask);
+
+    decltype(priority.begin()) max_it;      
+    {
+      std::lock_guard<std::mutex> lock(priority_mutex);
+
+      max_it = std::max_element(priority.begin(), priority.end());
+      int dis = std::distance(priority.begin(), max_it);
+      
+      for(auto e : priority){
+        printf("%d, ", e);
+      }
+      
+
+      CPU_SET(dis, &mask);
+      sched_setaffinity(0, sizeof(cpu_set_t), &mask);
+      priority_value = *max_it;
+      //*max_it = -1;
     }
-    sched_setaffinity(0, sizeof(cpu_set_t), &mask);
-    return f(std::forward<decltype(args)>(args)...);
+
+
+    if constexpr (std::is_void<decltype(f(std::forward<decltype(args)>(args)...))>::value) {
+      f(std::forward<decltype(args)>(args)...);
+      //{
+      //  std::lock_guard<std::mutex> lock(priority_mutex);
+      //  *max_it = priority_value;
+      //}
+    } else {
+      auto ret = f(std::forward<decltype(args)>(args)...);
+      //{
+      //  std::lock_guard<std::mutex> lock(priority_mutex);
+      //  *max_it = priority_value;
+      //}
+      return ret;
+    }
   };
-}
+}*/
+
 
   // Plain kernel submission without reductions
   template <class KernelName, rt::kernel_type KernelType, class KernelFuncType,
             int Dim>
   void submit_kernel(sycl::id<Dim> offset, sycl::range<Dim> global_range,
-                     sycl::range<Dim> local_range, KernelFuncType f) {
+                     sycl::range<Dim> local_range, KernelFuncType f) {   
 
     std::size_t local_mem_size = _local_mem_allocator.get_allocation_size();
-    rt::dag_node_ptr node = submit_kernel_impl<KernelName, KernelType>(
-        offset, global_range, local_range, add_affinity(f, cpu_mask_), local_mem_size, _requirements);
+    rt::dag_node_ptr node;
+
+    if(auto ptr = dynamic_cast<property::priority_policy*>(policy_)){
+      std::cout << "submitting with priority" << std::endl;
+      node = submit_kernel_impl<KernelName, KernelType>(
+        offset, global_range, local_range, ptr->add_priority(f), local_mem_size, _requirements);
+    } else if(auto ptr = dynamic_cast<property::masked_policy*>(policy_)){
+      std::cout << "submitting with mask" << std::endl;
+      node = submit_kernel_impl<KernelName, KernelType>(
+        offset, global_range, local_range, ptr->add_mask(f), local_mem_size, _requirements);
+    } else {
+      node = submit_kernel_impl<KernelName, KernelType>(
+        offset, global_range, local_range, f, local_mem_size, _requirements);
+    }
+
     _command_group_nodes.push_back(node);
+  
   }
 
   template <class KernelName, rt::kernel_type KernelType, class KernelFuncType,

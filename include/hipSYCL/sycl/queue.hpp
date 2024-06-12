@@ -123,18 +123,6 @@ struct hipSYCL_priority : public detail::queue_property {
 
 }
 
-namespace property {
-  struct cpu_mask : public detail::cg_property{
-  cpu_mask(std::span<int> mask)
-  :  _mask{mask} {}
-  const std::span<int> get_mask() const{
-    return _mask;
-  }
-private:
-  const std::span<int> _mask;
-};
-
-}
 
 class queue : public detail::property_carrying_object
 {
@@ -401,9 +389,9 @@ public:
                 _allocation_cache.get(),
                 _most_recent_reduction_kernel.get()};
 
-    if(prop_list.has_property<property::cpu_mask>()) {
-      cgh.set_cpu_mask(prop_list.get_property<property::cpu_mask>().get_mask());
-    }
+    if(prop_list.has_property<property::cpu_sched>()){
+      cgh.policy_ = prop_list.get_property<property::cpu_sched>().policy_;
+    } 
 
     apply_preferred_group_size<1>(prop_list, cgh);
     apply_preferred_group_size<2>(prop_list, cgh);
