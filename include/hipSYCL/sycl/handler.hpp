@@ -221,7 +221,7 @@ namespace property {
 
   struct cpu_sched : public detail::cg_property{
     cpu_sched(cpu_sched_policy* policy) :  policy_{policy} {}
-    cpu_sched_policy* policy_;
+    cpu_sched_policy* policy_ = nullptr;
   };
 }
 
@@ -872,7 +872,7 @@ public:
     return _local_mem_allocator;
   }
 
-  property::cpu_sched_policy* policy_;
+  property::cpu_sched_policy* policy_ = nullptr;
 
 private:
 
